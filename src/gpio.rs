@@ -44,8 +44,10 @@ macro_rules! gpio {
         pub mod $gpiox {
             use core::marker::PhantomData;
 
-            use hal::digital::{InputPin, OutputPin};
-            use nrf51::$GPIOX;
+            use nb;
+            use hal::digital::{InputPin, OutputPin, DetectingInputPin, Detector, Event};
+            use nrf51::{$GPIOX, GPIOTE};
+            use nrf51::gpiote::config::POLARITYW;
 
             use super::{
                 Floating, GpioExt, Input, OpenDrain, Output,
@@ -107,6 +109,53 @@ macro_rules! gpio {
                 fn is_low(&self) -> bool {
                     // NOTE(unsafe) atomic read with no side effects
                     unsafe { (*GPIO::ptr()).in_.read().bits() & (1 << self.i) == 0 }
+                }
+            }
+
+            pub struct PinDetector<Pin> {
+                event_index: usize,
+                pin: PhantomData<Pin>,
+            }
+
+            impl<Pin> PinDetector<Pin> {
+                fn next_event_index() -> usize {
+                    static mut CURRENT_EVENT_INDEX: usize = 0;
+                    let event_index = unsafe { CURRENT_EVENT_INDEX };
+                    assert!(event_index < 4);
+                    unsafe {
+                        CURRENT_EVENT_INDEX += 1;
+                    }
+                    event_index
+                }
+
+                fn new(event: Event, pin: u8) -> PinDetector<Pin> {
+                    let event_index = PinDetector::<Pin>::next_event_index();
+                    unsafe {
+                        (*GPIOTE::ptr()).config[event_index].write(|w| w
+                            .mode().event()
+                            .psel().bits(pin)
+                            .polarity().variant(match event {
+                                Event::LowToHigh => POLARITYW::LOTOHI,
+                                Event::HighToLow => POLARITYW::HITOLO,
+                            }));
+                    }
+                    PinDetector {
+                        event_index: event_index,
+                        pin: PhantomData,
+                    }
+                }
+            }
+
+            impl<Pin> Detector for PinDetector<Pin> {
+                fn poll(&self) -> nb::Result<(), !> {
+                    unsafe {
+                        if (*GPIOTE::ptr()).events_in[self.event_index].read().bits() == 1 {
+                            (*GPIOTE::ptr()).events_in[self.event_index].write(|w| w.bits(1));
+                            Ok(())
+                        } else {
+                            Err(nb::Error::WouldBlock)
+                        }
+                    }
                 }
             }
 
@@ -311,6 +360,14 @@ macro_rules! gpio {
                     fn is_low(&self) -> bool {
                         // NOTE(unsafe) atomic read with no side effects
                         unsafe { (*GPIO::ptr()).in_.read().bits() & (1 << $i) == 0 }
+                    }
+                }
+
+                impl<MODE> DetectingInputPin for $PXi<Input<MODE>> {
+                    type Detector = PinDetector<$PXi<Input<MODE>>>;
+
+                    fn detect(self, event: Event) -> Self::Detector {
+                        PinDetector::new(event, $i)
                     }
                 }
             )+

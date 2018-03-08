@@ -47,3 +47,7 @@ lto = true
 debug = true
 lto = true
 opt-level = "s"
+
+[patch.crates-io.embedded-hal]
+git = "https://github.com/Nemo157/embedded-hal"
+branch = "input-edges"
