@@ -138,7 +138,7 @@ macro_rules! gpio {
                                 Event::LowToHigh => POLARITYW::LOTOHI,
                                 Event::HighToLow => POLARITYW::HITOLO,
                             }));
-                        (*GPIOTE::ptr()).intenset.write(|w| w.bits(1 << pin));
+                        (*GPIOTE::ptr()).intenset.write(|w| w.bits(1 << event_index));
                     }
                     PinDetector {
                         event_index: event_index,
