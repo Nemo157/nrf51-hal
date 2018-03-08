@@ -150,7 +150,7 @@ macro_rules! gpio {
                 fn poll(&self) -> nb::Result<(), !> {
                     unsafe {
                         if (*GPIOTE::ptr()).events_in[self.event_index].read().bits() == 1 {
-                            (*GPIOTE::ptr()).events_in[self.event_index].write(|w| w.bits(1));
+                            (*GPIOTE::ptr()).events_in[self.event_index].reset();
                             Ok(())
                         } else {
                             Err(nb::Error::WouldBlock)
