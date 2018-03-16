@@ -46,6 +46,9 @@ impl Serial<UART0> {
         /* Set baud rate */
         uart.baudrate.write(|w| w.baudrate().variant(speed));
 
+        /* Enable UART interrupt */
+        uart.intenset.write(|w| w.rxdrdy().set().txdrdy().set());
+
         /* Enable UART function */
         uart.enable.write(|w| w.enable().enabled());
 
@@ -91,14 +94,18 @@ impl hal::serial::Write<u8> for Tx<UART0> {
     }
 
     fn write(&mut self, byte: u8) -> nb::Result<(), !> {
-        /* Write one 8bit value */
-        unsafe { (*UART0::ptr()).txd.write(|w| w.bits(u32::from(byte))) }
-
         /* Wait until written ... */
-        while unsafe { (*UART0::ptr()).events_txdrdy.read().bits() } == 0 {}
+        match unsafe { (*UART0::ptr()).events_txdrdy.read().bits() } {
+            0 => Err(nb::Error::WouldBlock),
+            _ => {
+                /* Write one 8bit value */
+                unsafe { (*UART0::ptr()).txd.write(|w| w.bits(u32::from(byte))) }
 
-        /* ... and clear read bit, there's no other way this will work */
-        unsafe { (*UART0::ptr()).events_txdrdy.write(|w| w.bits(0)) };
-        Ok(())
+                /* ... and clear read bit, there's no other way this will work */
+                unsafe { (*UART0::ptr()).events_txdrdy.write(|w| w.bits(0)) };
+
+                Ok(())
+            }
+        }
     }
 }
