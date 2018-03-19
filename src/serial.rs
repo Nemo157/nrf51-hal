@@ -106,8 +106,8 @@ impl hal::serial::Write<u8> for Tx<UART0> {
         match uart.events_txdrdy.read().bits() {
             0 => Err(nb::Error::WouldBlock),
             _ => {
-                uart.txd.write(|w| unsafe { w.bits(u32::from(byte)) });
                 uart.events_txdrdy.reset();
+                uart.txd.write(|w| unsafe { w.bits(u32::from(byte)) });
                 Ok(())
             }
         }
