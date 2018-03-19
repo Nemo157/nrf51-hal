@@ -25,6 +25,7 @@ pub struct Rx<UART> {
 /// Serial transmitter
 pub struct Tx<UART> {
     _uart: PhantomData<UART>,
+    busy: bool,
 }
 
 #[derive(Debug)]
@@ -56,9 +57,6 @@ impl Serial<UART0> {
         uart.tasks_starttx.write(|w| unsafe { w.bits(1) });
         uart.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-        /* Write an initial byte to force events_txdrdy to trigger */
-        uart.txd.write(|w| unsafe { w.bits(0) });
-
         Serial { uart, txpin, rxpin }
     }
 
@@ -67,7 +65,7 @@ impl Serial<UART0> {
     }
 
     pub fn split(self) -> (Tx<UART0>, Rx<UART0>) {
-        (Tx { _uart: PhantomData }, Rx { _uart: PhantomData })
+        (Tx { _uart: PhantomData, busy: false }, Rx { _uart: PhantomData })
     }
 }
 
@@ -95,21 +93,24 @@ impl hal::serial::Write<u8> for Tx<UART0> {
 
     fn flush(&mut self) -> nb::Result<(), !> {
         let uart = unsafe { &*UART0::ptr() };
-        match uart.events_txdrdy.read().bits() {
-            0 => Err(nb::Error::WouldBlock),
-            _ => Ok(()),
+        if self.busy {
+            if uart.events_txdrdy.read().bits() == 1 {
+                uart.events_txdrdy.reset();
+                self.busy = false;
+                Ok(())
+            } else {
+                Err(nb::Error::WouldBlock)
+            }
+        } else {
+            Ok(())
         }
     }
 
     fn write(&mut self, byte: u8) -> nb::Result<(), !> {
         let uart = unsafe { &*UART0::ptr() };
-        match uart.events_txdrdy.read().bits() {
-            0 => Err(nb::Error::WouldBlock),
-            _ => {
-                uart.events_txdrdy.reset();
-                uart.txd.write(|w| unsafe { w.bits(u32::from(byte)) });
-                Ok(())
-            }
-        }
+        self.flush()?;
+        uart.txd.write(|w| unsafe { w.bits(u32::from(byte)) });
+        self.busy = true;
+        Ok(())
     }
 }
