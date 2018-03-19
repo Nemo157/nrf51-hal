@@ -47,9 +47,6 @@ impl Serial<UART0> {
         /* Set baud rate */
         uart.baudrate.write(|w| w.baudrate().variant(speed));
 
-        /* Enable UART interrupt */
-        uart.intenset.write(|w| w.rxdrdy().set().txdrdy().set());
-
         /* Enable UART function */
         uart.enable.write(|w| w.enable().enabled());
 
@@ -75,8 +72,13 @@ impl hal::serial::Read<u8> for Rx<UART0> {
     fn read(&mut self) -> nb::Result<u8, Error> {
         let uart = unsafe { &*UART0::ptr() };
         match uart.events_rxdrdy.read().bits() {
-            0 => Err(nb::Error::WouldBlock),
+            0 => {
+                uart.intenset.write(|w| w.rxdrdy().set());
+                Err(nb::Error::WouldBlock)
+            }
             _ => {
+                uart.intenclr.write(|w| w.rxdrdy().clear());
+
                 /* We're going to pick up the data soon, let's signal the buffer is already waiting for
                  * more data */
                 uart.events_rxdrdy.reset();
@@ -93,16 +95,14 @@ impl hal::serial::Write<u8> for Tx<UART0> {
 
     fn flush(&mut self) -> nb::Result<(), !> {
         let uart = unsafe { &*UART0::ptr() };
-        if self.busy {
-            if uart.events_txdrdy.read().bits() == 1 {
-                uart.events_txdrdy.reset();
-                self.busy = false;
-                Ok(())
-            } else {
-                Err(nb::Error::WouldBlock)
-            }
-        } else {
+        if uart.events_txdrdy.read().bits() == 1 {
+            uart.intenclr.write(|w| w.txdrdy().clear());
+            uart.events_txdrdy.reset();
+            self.busy = false;
             Ok(())
+        } else {
+            uart.intenset.write(|w| w.txdrdy().set());
+            Err(nb::Error::WouldBlock)
         }
     }
 
