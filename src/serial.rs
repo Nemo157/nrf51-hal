@@ -56,6 +56,9 @@ impl Serial<UART0> {
         uart.tasks_starttx.write(|w| unsafe { w.bits(1) });
         uart.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
+        /* Write an initial byte to force events_txdrdy to trigger */
+        uart.txd.write(|w| unsafe { w.bits(0) });
+
         Serial { uart, txpin, rxpin }
     }
 
