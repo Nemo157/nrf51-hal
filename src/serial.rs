@@ -72,15 +72,16 @@ impl hal::serial::Read<u8> for Rx<UART0> {
     type Error = Error;
 
     fn read(&mut self) -> nb::Result<u8, Error> {
-        match unsafe { (*UART0::ptr()).events_rxdrdy.read().bits() } {
+        let uart = unsafe { &*UART0::ptr() };
+        match uart.events_rxdrdy.read().bits() {
             0 => Err(nb::Error::WouldBlock),
             _ => {
                 /* We're going to pick up the data soon, let's signal the buffer is already waiting for
                  * more data */
-                unsafe { (*UART0::ptr()).events_rxdrdy.write(|w| w.bits(0)) };
+                uart.events_rxdrdy.reset();
 
                 /* Read one 8bit value */
-                Ok(unsafe { (*UART0::ptr()).rxd.read().bits() } as u8)
+                Ok(uart.rxd.read().bits() as u8)
             }
         }
     }
@@ -90,20 +91,20 @@ impl hal::serial::Write<u8> for Tx<UART0> {
     type Error = !;
 
     fn flush(&mut self) -> nb::Result<(), !> {
-        Ok(())
+        let uart = unsafe { &*UART0::ptr() };
+        match uart.events_txdrdy.read().bits() {
+            0 => Err(nb::Error::WouldBlock),
+            _ => Ok(()),
+        }
     }
 
     fn write(&mut self, byte: u8) -> nb::Result<(), !> {
-        /* Wait until written ... */
-        match unsafe { (*UART0::ptr()).events_txdrdy.read().bits() } {
+        let uart = unsafe { &*UART0::ptr() };
+        match uart.events_txdrdy.read().bits() {
             0 => Err(nb::Error::WouldBlock),
             _ => {
-                /* Write one 8bit value */
-                unsafe { (*UART0::ptr()).txd.write(|w| w.bits(u32::from(byte))) }
-
-                /* ... and clear read bit, there's no other way this will work */
-                unsafe { (*UART0::ptr()).events_txdrdy.write(|w| w.bits(0)) };
-
+                uart.txd.write(|w| unsafe { w.bits(u32::from(byte)) });
+                uart.events_txdrdy.reset();
                 Ok(())
             }
         }
